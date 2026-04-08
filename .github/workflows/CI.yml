@@ -8,52 +8,75 @@ on:
   release:
     types: [published]
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   build:
     name: build
-    runs-on: ubuntu-20.04
-    #if: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
+    # 建议使用 latest 以获得更快的分配速度和更好的兼容性
+    runs-on: ubuntu-latest
+    
     env:
       build_variant: ${{ matrix.build_variant }}
       targets: ${{ matrix.targets }}
-      images_dir: /opt/images
+      # 修改为工作区内的路径，避免 /opt 目录可能存在的权限限制
+      images_dir: ${{ github.workspace }}/images
+      
     strategy:
       matrix:
         include:
           - build_variant: "mt7621"
             targets: "K2P"
+
     steps:
-      - uses: actions/checkout@v2
+      # 升级到 v4 (支持 Node 20，速度更快)
+      - uses: actions/checkout@v4
+
       - name: Prepare environment
         run: |
           sudo apt update
-          sudo apt install libtool-bin gperf python3-docutils autopoint gettext
+          sudo apt install libtool-bin gperf python3-docutils autopoint gettext 7zip
+
       - name: Run shellcheck
         run: sh ./trunk/tools/shellcheck.sh
+
       - name: Prepare toolchain
         run: |
           cd toolchain-mipsel
           sh dl_toolchain.sh
+
       - name: Start build
         run: |
           cd trunk
+          # 创建输出目录
           mkdir -p ${images_dir}
-          for m in $targets; do fakeroot ./build_firmware_ci $m; \
-          if [ $? = 0 ]; then cp -f images/*.trx ${images_dir}/$m.trx; else exit 1; fi; \
-          ./clear_tree_simple >/dev/null 2>&1; done
+          for m in $targets; do 
+            fakeroot ./build_firmware_ci $m; \
+            if [ $? = 0 ]; then 
+              cp -f images/*.trx ${images_dir}/$m.trx; 
+            else 
+              exit 1; 
+            fi; \
+            ./clear_tree_simple >/dev/null 2>&1; 
+          done
+
       - name: Create archive
         if: ${{ github.event_name != 'release' && success() }}
         run: |
           ls -lh ${images_dir}
-          GIT_VERSION=`git rev-parse --short=7 HEAD 2>/dev/null` && [ -n "$GIT_VERSION" ] && \
-          image_name=images_${build_variant}_${GIT_VERSION} || image_name=images_${build_variant}
-          cd ${images_dir}; md5sum *.trx |tee md5sum.txt; 7z a -mx=9 ${image_name}.7z ./*
+          GIT_VERSION=$(git rev-parse --short=7 HEAD 2>/dev/null)
+          [ -z "$GIT_VERSION" ] && GIT_VERSION="unknown"
+          image_name="images_${build_variant}_${GIT_VERSION}"
+          
+          cd ${images_dir}
+          md5sum *.trx | tee md5sum.txt
+          # 使用 7z 压缩
+          7z a -mx=9 ${image_name}.7z ./*
+          # 将变量写入环境变量，供后续步骤使用
           echo "image_name=${image_name}" >> $GITHUB_ENV
+
       - name: Upload images to Artifact
         if: ${{ github.event_name != 'release' && success() }}
-        uses: actions/upload-artifact@v2.2.1
+        # 升级到 v4 (上传速度大幅提升)
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.image_name }}
           path: ${{ env.images_dir }}/*.7z
-
