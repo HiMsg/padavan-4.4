@@ -33,7 +33,7 @@ jobs:
       - name: Prepare environment
         run: |
           sudo apt update
-          sudo apt install -y build-essential autoconf automake libtool pkg-config gperf python3-docutils autopoint gettext 7zip
+          sudo apt install -y build-essential autoconf automake libtool libltdl-dev pkg-config gperf python3-docutils autopoint gettext 7zip
           # Verify libtoolize works
           libtoolize --version
           
